@@ -1,0 +1,499 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Stirring beaker: a pseudo-3D beaker with a magnetic stir bar and a live-simulated
+  swirling liquid.  The embedded script integrates
+
+    * the azimuthal momentum equation  dW/dt = nu (W'' + 3 W'/r) + drive - friction
+      on a radial grid (W = local angular velocity of the liquid) with a no-slip wall,
+      a drag coupling to the bar near the bottom and an Ekman-type floor friction;
+    * the free-surface shape from radial equilibrium  dz/dr = W(r)^2 r / g  with volume
+      conservation, so a parabolic-core vortex opens as the liquid spins up and relaxes
+      when it slows down (the liquid lags the bar on both ramps);
+    * a bottom-impeller secondary circulation (out along the floor, up the wall, in at
+      the surface, down the axis) plus turbulent jitter that advects tracer particles;
+    * a stir plate whose set-point ramps up and down through a repeating profile; the
+      bar follows it with finite magnetic-coupling torque.
+
+  Scripts run when the file is opened directly or inlined into HTML, not inside <img>.
+  Click anywhere to pause / resume.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 640" width="520" height="640"
+     font-family="ui-monospace, Menlo, Consolas, monospace" role="img"
+     aria-label="Animated beaker of blue liquid stirred by a magnetic stir bar; the vortex deepens and relaxes as the stir plate speeds up and slows down.">
+  <title>Stirring beaker with vortex physics</title>
+  <defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1526"/>
+      <stop offset="1" stop-color="#05080f"/>
+    </linearGradient>
+    <radialGradient id="benchGlow" cx="0.5" cy="0.42" r="0.55">
+      <stop offset="0" stop-color="#3a5c8a" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#1b2c4a" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="plateTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#d9dde3"/>
+      <stop offset="1" stop-color="#a9b0ba"/>
+    </linearGradient>
+    <linearGradient id="plateFront" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6d7581"/>
+      <stop offset="0.12" stop-color="#4a515b"/>
+      <stop offset="1" stop-color="#2b3038"/>
+    </linearGradient>
+    <radialGradient id="ceramic" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f4f6f8"/>
+      <stop offset="0.85" stop-color="#d3d8de"/>
+      <stop offset="1" stop-color="#b8bfc8"/>
+    </radialGradient>
+    <linearGradient id="glassBack" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.35" stop-color="#ffffff" stop-opacity="0.04"/>
+      <stop offset="0.7" stop-color="#ffffff" stop-opacity="0.03"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.14"/>
+    </linearGradient>
+    <linearGradient id="glassFront" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.22"/>
+      <stop offset="0.08" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="0.16" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.3" stop-color="#ffffff" stop-opacity="0.0"/>
+      <stop offset="0.72" stop-color="#ffffff" stop-opacity="0.0"/>
+      <stop offset="0.9" stop-color="#ffffff" stop-opacity="0.10"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0.24"/>
+    </linearGradient>
+    <linearGradient id="liquidBody" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1e7fd0" stop-opacity="0.86"/>
+      <stop offset="0.55" stop-color="#0f5aa8" stop-opacity="0.9"/>
+      <stop offset="1" stop-color="#083a78" stop-opacity="0.95"/>
+    </linearGradient>
+    <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#e8ecef"/>
+      <stop offset="1" stop-color="#9aa3ad"/>
+    </linearGradient>
+    <radialGradient id="ledOn" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#d8ffe0"/>
+      <stop offset="0.45" stop-color="#3ddc6a"/>
+      <stop offset="1" stop-color="#1a8a3c"/>
+    </radialGradient>
+    <radialGradient id="knobGrad" cx="0.4" cy="0.35" r="0.7">
+      <stop offset="0" stop-color="#5c6572"/>
+      <stop offset="1" stop-color="#1e2229"/>
+    </radialGradient>
+    <filter id="blur2" x="-20%" y="-40%" width="140%" height="180%">
+      <feGaussianBlur stdDeviation="2.2"/>
+    </filter>
+    <filter id="blur6" x="-30%" y="-60%" width="160%" height="220%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+    <filter id="glow" x="-100%" y="-100%" width="300%" height="300%">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="innerClip">
+      <path d="M 134 138 A 126 37.8 0 0 1 386 138 L 386 458 A 126 37.8 0 0 1 134 458 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- bench -->
+  <rect width="520" height="640" fill="url(#bgGrad)"/>
+  <rect width="520" height="640" fill="url(#benchGlow)"/>
+
+  <!-- ===== stir plate ===== -->
+  <g id="plate">
+    <rect x="68" y="500" width="384" height="78" rx="9" fill="url(#plateFront)"/>
+    <rect x="68" y="416" width="384" height="90" rx="16" fill="url(#plateTop)" stroke="#f3f5f7" stroke-opacity="0.5" stroke-width="1"/>
+    <ellipse cx="260" cy="458" rx="150" ry="45" fill="url(#ceramic)" stroke="#98a1ab" stroke-width="1"/>
+    <ellipse cx="260" cy="458" rx="150" ry="45" fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="0.8" stroke-dasharray="3 5"/>
+    <ellipse cx="262" cy="464" rx="132" ry="38" fill="#000" opacity="0.3" filter="url(#blur6)"/>
+    <!-- front panel -->
+    <text x="84" y="515" font-size="7.5" fill="#c7ccd3" opacity="0.8" letter-spacing="1.5">MAGNETIC STIRRER</text>
+    <rect x="90" y="522" width="196" height="40" rx="4" fill="#07120c" stroke="#1d3326" stroke-width="1"/>
+    <text id="hud1" xml:space="preserve" x="98" y="538" font-size="11" fill="#7cf5a4">SET    0 rpm  BAR    0</text>
+    <text id="hud2" xml:space="preserve" x="98" y="554" font-size="11" fill="#7cf5a4">LIQUID CORE    0 rpm</text>
+    <circle id="ledGlow" cx="318" cy="542" r="9" fill="#3ddc6a" opacity="0" filter="url(#blur2)"/>
+    <circle cx="318" cy="542" r="5.2" fill="#123a1f" stroke="#0b0f14" stroke-width="1"/>
+    <circle id="led" cx="318" cy="542" r="5" fill="url(#ledOn)" opacity="0"/>
+    <text x="318" y="565" font-size="7" fill="#c7ccd3" text-anchor="middle" opacity="0.75">ON</text>
+    <circle cx="392" cy="542" r="27" fill="none" stroke="#c7ccd3" stroke-opacity="0.45" stroke-width="1.2" stroke-dasharray="1.6 11.36" transform="rotate(-135 392 542)"/>
+    <circle cx="392" cy="544" r="21" fill="#0c0f14" opacity="0.7"/>
+    <circle cx="392" cy="542" r="21" fill="url(#knobGrad)" stroke="#0f1318" stroke-width="1"/>
+    <g id="knob" transform="rotate(-135 392 542)">
+      <line x1="392" y1="542" x2="392" y2="524" stroke="#ffffff" stroke-width="2.6" stroke-linecap="round"/>
+    </g>
+    <text x="392" y="576" font-size="7" fill="#c7ccd3" text-anchor="middle" opacity="0.75">SPEED</text>
+  </g>
+
+  <!-- ===== beaker: back wall and floor ===== -->
+  <g id="beakerBack">
+    <path d="M 132 140 A 128 38.4 0 0 1 388 140 L 388 458 A 128 38.4 0 0 1 132 458 Z" fill="url(#glassBack)"/>
+    <ellipse cx="260" cy="458" rx="124" ry="37.2" fill="#dfe8f2" opacity="0.10"/>
+    <ellipse cx="260" cy="458" rx="124" ry="37.2" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="1"/>
+    <path d="M 132 140 A 128 38.4 0 0 1 388 140" fill="none" stroke="#ffffff" stroke-opacity="0.32" stroke-width="1.5"/>
+  </g>
+
+  <!-- ===== liquid, stir bar, free surface, tracers (driven by script) ===== -->
+  <g id="liquid" clip-path="url(#innerClip)">
+    <path id="liquidBody" fill="url(#liquidBody)"
+          d="M 136 268 A 124 37.2 0 0 1 384 268 L 384 458 A 124 37.2 0 0 1 136 458 Z"/>
+    <line id="barShadow" x1="208" y1="461" x2="312" y2="461" stroke="#021b3a" stroke-opacity="0.5" stroke-width="15" stroke-linecap="round" filter="url(#blur2)"/>
+    <ellipse id="barBlur" cx="260" cy="451" rx="52" ry="15.6" fill="#dfeaf5" opacity="0"/>
+    <g id="bar" opacity="1">
+      <line id="barUnder" x1="208" y1="453" x2="312" y2="453" stroke="#7f95ad" stroke-width="13" stroke-linecap="round"/>
+      <line id="barBody"  x1="208" y1="451" x2="312" y2="451" stroke="#dbe7f3" stroke-width="12" stroke-linecap="round"/>
+      <line id="barHi"    x1="216" y1="447.5" x2="304" y2="447.5" stroke="#ffffff" stroke-opacity="0.85" stroke-width="2.6" stroke-linecap="round"/>
+      <ellipse id="barRing" cx="260" cy="451" rx="3.5" ry="8.4" fill="none" stroke="#a9bccf" stroke-width="2.4"/>
+    </g>
+    <ellipse id="surfaceStatic" cx="260" cy="268" rx="124" ry="37.2" fill="#2f97e6" opacity="0.95"/>
+    <g id="surface" stroke-width="0.8" stroke-linejoin="round"></g>
+    <polyline id="surfaceRim" fill="none" stroke="#e6f4ff" stroke-opacity="0.5" stroke-width="1.2" stroke-linejoin="round" points=""/>
+    <g id="particles" fill="none" stroke-linecap="round"></g>
+    <g id="bubbles" fill="#ffffff" stroke="#ffffff" stroke-opacity="0.9" stroke-width="0.6"></g>
+  </g>
+
+  <!-- ===== beaker: front wall, rim, spout, graduations ===== -->
+  <g id="beakerFront">
+    <path d="M 132 140 A 128 38.4 0 0 1 388 140 L 388 458 A 128 38.4 0 0 1 132 458 Z" fill="url(#glassFront)"/>
+    <rect x="156" y="162" width="10" height="284" rx="5" fill="#ffffff" opacity="0.22" filter="url(#blur2)"/>
+    <rect x="171" y="180" width="3" height="250" rx="1.5" fill="#ffffff" opacity="0.18"/>
+    <rect x="360" y="176" width="4" height="262" rx="2" fill="#ffffff" opacity="0.13" filter="url(#blur2)"/>
+    <line x1="132" y1="140" x2="132" y2="458" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.2"/>
+    <line x1="388" y1="140" x2="388" y2="458" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1.2"/>
+    <path d="M 132 458 A 128 38.4 0 0 0 388 458" fill="none" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2"/>
+    <path d="M 135 452 A 125 37.5 0 0 0 385 452" fill="none" stroke="#ffffff" stroke-opacity="0.2" stroke-width="1"/>
+    <!-- graduations (front-right of the cylinder) -->
+    <path d="M 335.2 459.1 Q 325.9 461.5 316.1 462.5" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1"/>
+    <path d="M 348.9 425.6 Q 333.4 430.1 316.1 432.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.4"/>
+    <text x="343.9" y="428.6" font-size="9" fill="#ffffff" fill-opacity="0.72" text-anchor="end">50</text>
+    <path d="M 335.2 399.1 Q 325.9 401.5 316.1 402.5" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1"/>
+    <path d="M 348.9 365.6 Q 333.4 370.1 316.1 372.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.4"/>
+    <text x="343.9" y="368.6" font-size="9" fill="#ffffff" fill-opacity="0.72" text-anchor="end">100</text>
+    <path d="M 335.2 339.1 Q 325.9 341.5 316.1 342.5" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1"/>
+    <path d="M 348.9 305.6 Q 333.4 310.1 316.1 312.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.4"/>
+    <text x="343.9" y="308.6" font-size="9" fill="#ffffff" fill-opacity="0.72" text-anchor="end">150</text>
+    <path d="M 335.2 279.1 Q 325.9 281.5 316.1 282.5" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1"/>
+    <path d="M 348.9 245.6 Q 333.4 250.1 316.1 252.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.4"/>
+    <text x="343.9" y="248.6" font-size="9" fill="#ffffff" fill-opacity="0.72" text-anchor="end">200</text>
+    <path d="M 335.2 219.1 Q 325.9 221.5 316.1 222.5" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="1"/>
+    <path d="M 348.9 185.6 Q 333.4 190.1 316.1 192.5" fill="none" stroke="#ffffff" stroke-opacity="0.75" stroke-width="1.4"/>
+    <text x="343.9" y="188.6" font-size="9" fill="#ffffff" fill-opacity="0.72" text-anchor="end">250</text>
+    <text x="343.9" y="175.6" font-size="8" fill="#ffffff" fill-opacity="0.6" text-anchor="end">mL</text>
+    <!-- rim and pouring spout -->
+    <path d="M 136.4 130.1 Q 121 128 116 118 Q 124 110 164.9 114.3" fill="#ffffff" fill-opacity="0.12" stroke="#ffffff" stroke-opacity="0.7" stroke-width="1.4" stroke-linejoin="round"/>
+    <path d="M 138 133 Q 124 131 120 123" fill="none" stroke="#ffffff" stroke-opacity="0.3" stroke-width="1"/>
+    <ellipse cx="260" cy="140" rx="128" ry="38.4" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="1"/>
+    <path d="M 132 140 A 128 38.4 0 0 0 388 140" fill="none" stroke="#ffffff" stroke-opacity="0.8" stroke-width="2"/>
+    <path d="M 136 143 A 124 37 0 0 0 384 143" fill="none" stroke="#ffffff" stroke-opacity="0.25" stroke-width="1"/>
+  </g>
+
+  <text id="pausedTag" x="260" y="612" font-size="10" fill="#c7ccd3" text-anchor="middle" opacity="0" letter-spacing="2">PAUSED</text>
+  <text x="260" y="630" font-size="8" fill="#8a93a0" text-anchor="middle" opacity="0.75">vortex depth from radial equilibrium · liquid spin-up by viscous coupling · click to pause</text>
+
+  <script><![CDATA[
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var NSVG = 'http://www.w3.org/2000/svg';
+  var TAU = Math.PI * 2;
+
+  /* ---------- scene geometry (screen px) ---------- */
+  var CX = 260, YB = 458;      // axis x, floor centre y
+  var RL = 124, RHO = 0.30;    // inner radius, ellipse squash of the oblique view
+  var H0 = 190;                // liquid depth at rest
+  var ZMIN = 24;               // vortex tip cannot go below this (bar height + margin)
+  var LB = 0.42, ZBAR = 7;     // stir bar half-length (in radii) and axis height
+
+  function px(r, th) { return CX + RL * r * Math.cos(th); }
+  function py(r, th, z) { return YB - z + RL * RHO * r * Math.sin(th); }
+
+  /* ---------- physical parameters (radius-normalised units, seconds) ---------- */
+  var NU = 0.02;      // effective (eddy) kinematic viscosity, R^2/s (~25x water: stirring turbulence)
+  var KB = 2.6;       // bar -> liquid drag coupling, 1/s (at full bar speed)
+  var KF = 0.12;      // floor / Ekman friction, 1/s
+  var RB = LB;        // radius swept by the bar
+  var G_EFF = 1.5;    // effective gravity: dz/dr = W^2 r / G_EFF  (px per (rad/s)^2)
+  var SEC = 0.011;    // secondary-circulation strength per rad/s of core swirl
+  var DIFF = 0.0007;  // turbulent diffusivity per rad/s of core swirl, R^2/s
+  var TAU_BAR = 0.45, ACC_MAX = 48;   // magnetic coupling: lag (s) and max angular accel (rad/s^2)
+
+  /* stir-plate set-point schedule: [seconds, rpm]; smooth ramps between keys, loops */
+  var KEYS = [[0, 0], [1.5, 0], [4.5, 260], [7.5, 260], [10, 620], [15, 620],
+              [19, 110], [22, 110], [24, 470], [28.5, 470], [29, 0], [37, 0]];   // 29 s: switched off
+  var PERIOD = KEYS[KEYS.length - 1][0];
+  function smooth(x) { return x * x * (3 - 2 * x); }
+  function setpoint(t) {
+    t = t % PERIOD;
+    for (var i = 0; i < KEYS.length - 1; i++) {
+      var a = KEYS[i], b = KEYS[i + 1];
+      if (t >= a[0] && t <= b[0]) {
+        var f = (b[0] === a[0]) ? 1 : (t - a[0]) / (b[0] - a[0]);
+        return a[1] + (b[1] - a[1]) * smooth(f);
+      }
+    }
+    return 0;
+  }
+
+  /* ---------- radial grid for the azimuthal momentum equation ---------- */
+  var NF = 32, DR = 1 / NF;
+  var W = new Float64Array(NF), DW = new Float64Array(NF);   // angular velocity per cell
+  var RC = new Float64Array(NF), RH3 = new Float64Array(NF), INV = new Float64Array(NF), CPL = new Float64Array(NF);
+  var HE = new Float64Array(NF + 1);                          // cumulative surface rise at cell edges
+  for (var k = 0; k < NF; k++) {
+    RC[k] = (k + 0.5) * DR;
+    RH3[k] = Math.pow((k + 1) * DR, 3);
+    INV[k] = 1 / (RC[k] * RC[k] * RC[k] * DR * DR);
+    var r = RC[k];
+    CPL[k] = r < RB ? 0.35 + 0.65 * (r / RB) * (r / RB) : Math.exp(-Math.pow((r - RB) / 0.1, 2));
+  }
+  var DT_SUB = 0.0006;   // explicit-diffusion stability: dt < dr^2 / (16 nu)
+
+  function wAt(r) {                       // liquid angular velocity at radius r (interpolated)
+    var x = r * NF - 0.5;
+    if (x <= 0) return W[0];
+    if (x >= NF - 1) return W[NF - 1] * (1 - r) / (1 - RC[NF - 1]) ;
+    var k = Math.floor(x), f = x - k;
+    return W[k] + f * (W[k + 1] - W[k]);
+  }
+  function hAt(r) {                       // cumulative rise of the free surface at radius r
+    var x = Math.min(NF, Math.max(0, r * NF));
+    var k = Math.floor(x); if (k >= NF) return HE[NF];
+    return HE[k] + (x - k) * (HE[k + 1] - HE[k]);
+  }
+
+  /* ---------- free-surface mesh: NR rings x NS sectors, built back-to-front ---------- */
+  var NR = 12, NS = 40;
+  var RINGS = [], COS = [], SIN = [];
+  for (var i = 0; i <= NR; i++) RINGS.push(Math.pow(i / NR, 0.8));
+  for (var j = 0; j < NS; j++) { COS.push(Math.cos(j * TAU / NS)); SIN.push(Math.sin(j * TAU / NS)); }
+  var surfaceG = $('surface'), polys = [];
+  for (i = 0; i < NR; i++) for (j = 0; j < NS; j++) {
+    var j2 = (j + 1) % NS;
+    polys.push({ i: i, j: j, depth: 0.5 * (RINGS[i] + RINGS[i + 1]) * 0.5 * (SIN[j] + SIN[j2]) });
+  }
+  polys.sort(function (a, b) { return a.depth - b.depth; });   // painter's order for an oblique view
+  polys.forEach(function (p) { p.el = document.createElementNS(NSVG, 'polygon'); surfaceG.appendChild(p.el); });
+  var XS = [], YS = [], ZS = [], SX = [], SY = [];
+  for (i = 0; i <= NR; i++) { XS.push(new Float64Array(NS)); YS.push(new Float64Array(NS)); ZS.push(new Float64Array(NS)); SX.push(new Float64Array(NS)); SY.push(new Float64Array(NS)); }
+  $('surfaceStatic').setAttribute('opacity', '0');
+
+  /* ---------- tracer particles ---------- */
+  var NP = 120, parts = [], partsG = $('particles');
+  for (i = 0; i < NP; i++) {
+    var el = document.createElementNS(NSVG, 'line');
+    el.setAttribute('stroke', i % 7 === 0 ? '#ffffff' : '#bfe3ff');
+    partsG.appendChild(el);
+    parts.push({ r: Math.sqrt(Math.random()) * 0.95 + 0.02, th: Math.random() * TAU,
+                 z: 4 + Math.random() * (H0 - 8), s: 1.1 + Math.random() * 1.4, el: el });
+  }
+  var bubbles = [], bubblesG = $('bubbles');
+
+  /* ---------- dynamic state ---------- */
+  var simT = 0, rpmSet = 0, wBar = 0, phiBar = 0, wCore = 0, zc = H0, hbar = 0, choked = false;
+  var ampWob = 0, phiPrec = 0, oxc = 0, oyc = 0;   // vortex-tip precession
+
+  /* ================= physics ================= */
+  function stepBar(dt) {
+    rpmSet = setpoint(simT);
+    if (rpmSet > 0.5) {                       // magnet on: bar follows the rotating field with finite torque
+      var wT = rpmSet * TAU / 60, dw = (wT - wBar) / TAU_BAR;
+      if (dw > ACC_MAX) dw = ACC_MAX; else if (dw < -ACC_MAX) dw = -ACC_MAX;
+      wBar = Math.max(0, wBar + dw * dt);
+    } else {                                  // plate off: the free bar is carried along by the swirl
+      var wl = 0, ws = 0;
+      for (var k = 0; k < NF && RC[k] < RB; k++) { wl += W[k] * CPL[k]; ws += CPL[k]; }
+      wBar += ((ws > 0 ? wl / ws : 0) - wBar) * Math.min(1, dt / 0.3);
+    }
+    phiBar = (phiBar + wBar * dt) % TAU;
+  }
+
+  function stepFluid(dt) {                    // dW/dt = nu (1/r^3) d/dr (r^3 dW/dr) + drive - friction
+    var n = Math.ceil(dt / DT_SUB), h = dt / n, k;
+    // a spinning bar pumps the whole bottom layer; a stopped bar is only a small obstacle
+    var kb = KB * (0.1 + 0.9 * Math.min(1, wBar / 12));
+    for (var s = 0; s < n; s++) {
+      for (k = 0; k < NF; k++) {
+        var up = (k < NF - 1) ? RH3[k] * (W[k + 1] - W[k]) : RH3[k] * 2 * (0 - W[k]);   // no-slip at the wall
+        var dn = (k > 0) ? RH3[k - 1] * (W[k] - W[k - 1]) : 0;                            // regularity on the axis
+        DW[k] = NU * (up - dn) * INV[k] + kb * CPL[k] * (wBar - W[k]) - KF * W[k];
+      }
+      for (k = 0; k < NF; k++) W[k] += DW[k] * h;
+    }
+    wCore = 0.25 * (W[0] + W[1] + W[2] + W[3]);
+  }
+
+  function computeSurface() {                 // radial equilibrium dz/dr = W^2 r / g, volume conserved
+    HE[0] = 0; var vol = 0, k;
+    for (k = 0; k < NF; k++) {
+      HE[k + 1] = HE[k] + W[k] * W[k] * RC[k] * DR / G_EFF;
+      vol += (HE[k] + HE[k + 1]) * RC[k] * DR;             // area-weighted mean rise: 2*avg*r*dr
+    }
+    hbar = vol; choked = false;
+    if (H0 - hbar < ZMIN && hbar > 0) {                    // vortex reaches the bar: air core, bubbles
+      var sc = (H0 - ZMIN) / hbar;
+      for (k = 0; k <= NF; k++) HE[k] *= sc;
+      hbar = H0 - ZMIN; choked = true;
+    }
+    zc = H0 - hbar;
+    ampWob = Math.min(6, 0.0025 * wCore * wCore / G_EFF); // mode-2 surface wave locked to the bar
+  }
+  function stepPrecession(dt) {               // the vortex core wanders slowly around the axis
+    phiPrec += 0.12 * wCore * dt;
+    var a = 0.05 * Math.min(1, wCore / 30);
+    oxc = a * Math.cos(phiPrec); oyc = a * Math.sin(phiPrec);
+  }
+  function men(r) { return 3 * Math.exp(-(1 - r) * 30); }
+  function wobProfile(r) { var q = r / 0.35; return Math.E * q * q * Math.exp(-q * q); }
+  function zSurf(r, th) { return zc + hAt(r) + men(r) + ampWob * wobProfile(r) * Math.cos(2 * (th - phiBar)); }
+
+  function gauss() { return (Math.random() + Math.random() + Math.random() - 1.5) * 2; }
+
+  function stepParticles(dt) {                // swirl + bottom-impeller secondary circulation + turbulent jitter
+    var S = SEC * wCore, sig = Math.sqrt(2 * DIFF * wCore * dt);
+    for (var i = 0; i < NP; i++) {
+      var p = parts[i], zs = zSurf(p.r, p.th);
+      var zn = Math.min(1, Math.max(0, p.z / zs));
+      var ur = S * Math.PI * p.r * (1 - p.r * p.r) * Math.cos(Math.PI * zn);   // out along the floor, in at the surface
+      var uz = -S * (2 - 4 * p.r * p.r) * Math.sin(Math.PI * zn) * zs;         // down the axis, up the wall
+      p.th += wAt(p.r) * dt;
+      p.r += ur * dt + sig * gauss();
+      p.z += uz * dt + sig * gauss() * RL;
+      if (p.r < 0.02) { p.r = 0.04 - p.r; p.th += Math.PI; }
+      if (p.r > 0.965) p.r = 1.93 - p.r;
+      zs = zSurf(p.r, p.th);
+      if (p.z < 3) p.z = 6 - p.z;
+      if (p.z > zs - 2) p.z = zs - 2 - 0.5 * (p.z - (zs - 2));
+      if (p.th > TAU) p.th -= TAU;
+    }
+  }
+
+  function stepBubbles(dt) {                  // air shed from the vortex tip when it reaches the bar
+    if (choked && bubbles.length < 36 && Math.random() < 28 * dt) {
+      var el = document.createElementNS(NSVG, 'circle');
+      bubblesG.appendChild(el);
+      bubbles.push({ r: 0.04 + Math.random() * 0.1, th: Math.random() * TAU, z: ZMIN - 5,
+                     vr: 0.35 + Math.random() * 0.45, s: 1.1 + Math.random() * 1.5, el: el });
+    }
+    for (var i = bubbles.length - 1; i >= 0; i--) {
+      var b = bubbles[i];
+      b.th += wAt(b.r) * dt;
+      b.r += b.vr * dt; b.vr *= Math.exp(-2.2 * dt);
+      b.z += (30 + 16 * b.s) * dt;
+      if (b.r > 0.95 || b.z >= zSurf(b.r, b.th) - 1) { bubblesG.removeChild(b.el); bubbles.splice(i, 1); }
+    }
+  }
+
+  /* ================= rendering ================= */
+  var LX = -0.5, LY = 0.35, LZ = 0.8, ln = Math.sqrt(LX * LX + LY * LY + LZ * LZ); LX /= ln; LY /= ln; LZ /= ln;
+  var HX = LX, HY = LY + 0.5, HZ = LZ + 0.87, hn = Math.sqrt(HX * HX + HY * HY + HZ * HZ); HX /= hn; HY /= hn; HZ /= hn;
+  var CL = [80, 192, 248], CD = [8, 48, 118];
+  function f1(v) { return v.toFixed(1); }
+  function set(id, attrs) { var e = $(id); for (var a in attrs) e.setAttribute(a, attrs[a]); }
+
+  function renderSurface() {
+    var i, j, jj;
+    for (i = 0; i <= NR; i++) {
+      var r = RINGS[i], base = zc + hAt(r) + men(r), wob = ampWob * wobProfile(r), q = 1 - r;
+      for (j = 0; j < NS; j++) {
+        var z = base + wob * Math.cos(2 * (j * TAU / NS - phiBar));
+        XS[i][j] = RL * (r * COS[j] + q * oxc); YS[i][j] = RL * (r * SIN[j] + q * oyc); ZS[i][j] = z;
+        SX[i][j] = CX + XS[i][j]; SY[i][j] = YB - z + RHO * YS[i][j];
+      }
+    }
+    var zTop = zc + hAt(1) + 3;
+    for (var n = 0; n < polys.length; n++) {
+      var p = polys[n]; i = p.i; j = p.j; var j2 = (j + 1) % NS, i1 = i + 1;
+      var ax = XS[i][j], ay = YS[i][j], az = ZS[i][j], bx = XS[i][j2], by = YS[i][j2], bz = ZS[i][j2];
+      var cx = XS[i1][j2], cy = YS[i1][j2], cz = ZS[i1][j2], dx = XS[i1][j], dy = YS[i1][j], dz = ZS[i1][j];
+      var d1x = cx - ax, d1y = cy - ay, d1z = cz - az, d2x = dx - bx, d2y = dy - by, d2z = dz - bz;
+      var nx = d1y * d2z - d1z * d2y, ny = d1z * d2x - d1x * d2z, nz = d1x * d2y - d1y * d2x;
+      if (nz < 0) { nx = -nx; ny = -ny; nz = -nz; }
+      var nl = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      var lam = nx * LX + ny * LY + nz * LZ; if (lam < 0) lam = 0;
+      var sh = 0.3 + 0.7 * lam;
+      var sp = nx * HX + ny * HY + nz * HZ; sp = sp > 0 ? Math.pow(sp, 70) * 0.7 : 0;
+      var zm = 0.25 * (az + bz + cz + dz);
+      var att = 0.64 + 0.36 * Math.min(1, Math.max(0, (zm - ZMIN) / (zTop - ZMIN)));
+      var R_ = (CD[0] + (CL[0] - CD[0]) * sh) * att + 255 * sp, G_ = (CD[1] + (CL[1] - CD[1]) * sh) * att + 255 * sp,
+          B_ = (CD[2] + (CL[2] - CD[2]) * sh) * att + 255 * sp;
+      var col = 'rgb(' + (R_ > 255 ? 255 : R_ | 0) + ',' + (G_ > 255 ? 255 : G_ | 0) + ',' + (B_ > 255 ? 255 : B_ | 0) + ')';
+      p.el.setAttribute('points', f1(SX[i][j]) + ',' + f1(SY[i][j]) + ' ' + f1(SX[i][j2]) + ',' + f1(SY[i][j2]) + ' ' +
+                                  f1(SX[i1][j2]) + ',' + f1(SY[i1][j2]) + ' ' + f1(SX[i1][j]) + ',' + f1(SY[i1][j]));
+      p.el.setAttribute('style', 'fill:' + col + ';stroke:' + col);
+    }
+    var rim = '';
+    for (j = 0; j <= NS; j++) { jj = j % NS; rim += f1(SX[NR][jj]) + ',' + f1(SY[NR][jj]) + ' '; }
+    $('surfaceRim').setAttribute('points', rim);
+    var half = NS / 2, d = 'M ' + f1(SX[NR][half]) + ' ' + f1(SY[NR][half]);
+    for (j = half + 1; j <= NS; j++) { jj = j % NS; d += ' L ' + f1(SX[NR][jj]) + ' ' + f1(SY[NR][jj]); }
+    d += ' L ' + (CX + RL) + ' ' + YB + ' A ' + RL + ' ' + f1(RL * RHO) + ' 0 0 1 ' + (CX - RL) + ' ' + YB + ' Z';
+    $('liquidBody').setAttribute('d', d);
+  }
+
+  function renderBar() {
+    var e = 2.4 * Math.min(1, wBar / 60) / RL, ang = phiBar * 0.23;      // slight walk of the bar centre
+    var ex = e * Math.cos(ang), ey = e * Math.sin(ang), c = Math.cos(phiBar), s = Math.sin(phiBar);
+    var x1 = CX + RL * (ex + LB * c), y1 = YB - ZBAR + RL * RHO * (ey + LB * s);
+    var x2 = CX + RL * (ex - LB * c), y2 = YB - ZBAR + RL * RHO * (ey - LB * s);
+    var bl = Math.min(1, Math.max(0, (wBar - 30) / 34)); bl = bl * bl * (3 - 2 * bl);   // motion-blur amount
+    set('barBody', { x1: f1(x1), y1: f1(y1), x2: f1(x2), y2: f1(y2) });
+    set('barUnder', { x1: f1(x1), y1: f1(y1 + 2.2), x2: f1(x2), y2: f1(y2 + 2.2) });
+    set('barHi', { x1: f1(x1 + (x2 - x1) * 0.1), y1: f1(y1 + (y2 - y1) * 0.1 - 3.2), x2: f1(x1 + (x2 - x1) * 0.9), y2: f1(y1 + (y2 - y1) * 0.9 - 3.2) });
+    set('barRing', { cx: f1(CX + RL * ex), cy: f1(YB - ZBAR + RL * RHO * ey), rx: f1(1.4 + 7 * Math.abs(s)) });
+    set('barShadow', { x1: f1(x1 + 3), y1: f1(y1 + ZBAR + 2), x2: f1(x2 + 3), y2: f1(y2 + ZBAR + 2), 'stroke-opacity': f1(0.5 - 0.3 * bl) });
+    set('barBlur', { cx: f1(CX + RL * ex), cy: f1(YB - ZBAR + RL * RHO * ey), opacity: (0.32 * bl).toFixed(2) });
+    $('bar').setAttribute('opacity', (1 - 0.65 * bl).toFixed(2));
+  }
+
+  function renderParticles() {
+    for (var i = 0; i < NP; i++) {
+      var p = parts[i], th0 = p.th - Math.max(0.004, Math.min(0.4, wAt(p.r) * lastDt));
+      var el = p.el, depth = 0.5 + 0.5 * Math.sin(p.th);
+      el.setAttribute('x1', f1(px(p.r, th0))); el.setAttribute('y1', f1(py(p.r, th0, p.z)));
+      el.setAttribute('x2', f1(px(p.r, p.th))); el.setAttribute('y2', f1(py(p.r, p.th, p.z)));
+      el.setAttribute('stroke-width', f1(p.s)); el.setAttribute('stroke-opacity', (0.28 + 0.55 * depth).toFixed(2));
+    }
+  }
+  function renderBubbles() {
+    for (var i = 0; i < bubbles.length; i++) {
+      var b = bubbles[i];
+      b.el.setAttribute('cx', f1(px(b.r, b.th))); b.el.setAttribute('cy', f1(py(b.r, b.th, b.z)));
+      b.el.setAttribute('r', f1(b.s)); b.el.setAttribute('fill-opacity', (0.25 + 0.3 * Math.sin(b.th)).toFixed(2));
+    }
+  }
+  function pad(n) { var s = String(Math.round(n)); while (s.length < 4) s = ' ' + s; return s; }
+  function renderHud() {
+    $('hud1').textContent = 'SET ' + pad(rpmSet) + ' rpm  BAR ' + pad(wBar * 60 / TAU);
+    $('hud2').textContent = 'LIQUID CORE ' + pad(wCore * 60 / TAU) + ' rpm';
+    $('knob').setAttribute('transform', 'rotate(' + f1(-135 + 270 * Math.min(1, rpmSet / 650)) + ' 392 542)');
+    var on = Math.min(1, rpmSet / 30);   // plate power lamp follows the set-point, not the bar
+    $('led').setAttribute('opacity', on.toFixed(2)); $('ledGlow').setAttribute('opacity', (0.7 * on).toFixed(2));
+  }
+
+  /* ================= loop ================= */
+  var lastDt = 1 / 60, running = true, lastTs = null;
+  function step(dt) { simT += dt; lastDt = dt; stepBar(dt); stepFluid(dt); computeSurface(); stepPrecession(dt); stepParticles(dt); stepBubbles(dt); }
+  function render() { renderSurface(); renderBar(); renderParticles(); renderBubbles(); renderHud(); }
+  function frame(ts) {
+    if (lastTs === null) lastTs = ts;
+    var dt = Math.min(0.05, (ts - lastTs) / 1000); lastTs = ts;
+    if (running && dt > 0) { step(dt); render(); }
+    requestAnimationFrame(frame);
+  }
+  computeSurface(); render();
+  requestAnimationFrame(frame);
+  surfaceG.ownerSVGElement.addEventListener('click', function () {
+    running = !running; $('pausedTag').setAttribute('opacity', running ? '0' : '0.9');
+  });
+  try {   // hooks for testing: window.__beaker.advance(seconds), .state()
+    window.__beaker = {
+      advance: function (sec) { var n = Math.ceil(sec * 60); for (var i = 0; i < n; i++) step(sec / n); render(); },
+      state: function () { return { t: simT, rpmSet: rpmSet, rpmBar: wBar * 60 / TAU, rpmCore: wCore * 60 / TAU, zc: zc, hbar: hbar, choked: choked, bubbles: bubbles.length }; },
+      pause: function (p) { running = !p; },
+      tune: function (o) {   // e.g. __beaker.tune({KB: 3, G_EFF: 0.8})
+        if ('NU' in o) NU = o.NU; if ('KB' in o) KB = o.KB; if ('KF' in o) KF = o.KF;
+        if ('G_EFF' in o) G_EFF = o.G_EFF; if ('SEC' in o) SEC = o.SEC; if ('DIFF' in o) DIFF = o.DIFF;
+      }
+    };
+  } catch (err) {}
+})();
+  ]]></script>
+</svg>
