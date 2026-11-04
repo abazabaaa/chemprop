@@ -50,6 +50,11 @@ the parts that turned out to be wrong, the self-reported rule compliance, and on
 it came close to breaking a rule. Each has a short header saying what the true target was and
 whether the answer was right.
 
+One file is kept twice on purpose. `handwritten/build_weights.py` carries black/isort formatting so
+this repository's lint CI passes; `results/reports/build_weights.verbatim.py.txt` is exactly what the
+agent wrote, untouched. No value, name, comment or line of logic differs between them, and check 1 of
+`src/check_handwritten.py` runs both and confirms they produce identical weights.
+
 ## Reproducing
 
 CPU only; no GPU needed. From the repository root:

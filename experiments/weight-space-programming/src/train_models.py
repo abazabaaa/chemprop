@@ -18,19 +18,17 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
+from lightning import pytorch as pl
 import numpy as np
 import pandas as pd
-import torch
-from lightning import pytorch as pl
 from rdkit import RDLogger
+import torch
 
-import sys
-from pathlib import Path as _Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-sys.path.insert(0, str(_Path(__file__).resolve().parent))
-
-import common
+import common  # noqa: E402 # needs the path set above
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -55,14 +53,30 @@ def _fit(smiles, y, epochs: int, batch_size: int):
 
     model = common.build_model()
     model.train()
-    pl.Trainer(max_epochs=epochs, accelerator="cpu", logger=False, enable_checkpointing=False,
-               enable_progress_bar=False, enable_model_summary=False, deterministic=True
-               ).fit(model, data.build_dataloader(train, batch_size=batch_size, num_workers=0, seed=0))
+    pl.Trainer(
+        max_epochs=epochs,
+        accelerator="cpu",
+        logger=False,
+        enable_checkpointing=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+        deterministic=True,
+    ).fit(model, data.build_dataloader(train, batch_size=batch_size, num_workers=0, seed=0))
     model.eval()
 
     with torch.no_grad():
-        pred = torch.cat([model(b.bmg) for b in data.build_dataloader(
-            test, batch_size=256, shuffle=False, num_workers=0)]).numpy().ravel()
+        pred = (
+            torch.cat(
+                [
+                    model(b.bmg)
+                    for b in data.build_dataloader(
+                        test, batch_size=256, shuffle=False, num_workers=0
+                    )
+                ]
+            )
+            .numpy()
+            .ravel()
+        )
     truth = np.array([d.y[0] for d in test])
     r2 = float(1 - ((pred - truth) ** 2).sum() / ((truth - truth.mean()) ** 2).sum())
     return model, r2, scaler
@@ -74,8 +88,12 @@ def train_descriptors(out: Path) -> dict:
     for code, target in common.DESCRIPTOR_CODES.items():
         model, r2, scaler = _fit(df.smiles, df[target], DESCRIPTOR_EPOCHS, DESCRIPTOR_BATCH)
         common.export_weights(model, out / "models" / f"descriptor_{code}.npz")
-        key[code] = {"target": target, "heldout_r2_standardised": r2,
-                     "scaler_mean": float(scaler.mean_[0]), "scaler_std": float(scaler.scale_[0])}
+        key[code] = {
+            "target": target,
+            "heldout_r2_standardised": r2,
+            "scaler_mean": float(scaler.mean_[0]),
+            "scaler_std": float(scaler.scale_[0]),
+        }
         print(f"  {code} {target:16s} R2={r2:.3f}", flush=True)
         common.write_json(key, out / "answer_key_descriptors.json")
     return key
@@ -87,9 +105,15 @@ def train_endpoints(out: Path) -> dict:
         df = pd.read_csv(common.TEST_DATA / csv)[["smiles", target]].dropna()
         model, r2, scaler = _fit(df.smiles, df[target], ENDPOINT_EPOCHS, ENDPOINT_BATCH)
         common.export_weights(model, out / "models" / f"endpoint_{code}.npz")
-        key[code] = {"target": target, "description": desc, "source_csv": csv, "n": int(len(df)),
-                     "heldout_r2_standardised": r2,
-                     "scaler_mean": float(scaler.mean_[0]), "scaler_std": float(scaler.scale_[0])}
+        key[code] = {
+            "target": target,
+            "description": desc,
+            "source_csv": csv,
+            "n": len(df),
+            "heldout_r2_standardised": r2,
+            "scaler_mean": float(scaler.mean_[0]),
+            "scaler_std": float(scaler.scale_[0]),
+        }
         print(f"  {code} {target:16s} n={len(df)} R2={r2:.3f}", flush=True)
         common.write_json(key, out / "answer_key_endpoints.json")
     return key
@@ -100,20 +124,29 @@ def train_baseline(out: Path) -> dict:
     only, output head de-standardised so it predicts raw counts like the hand-written one does."""
     df = pd.read_csv(out / "data" / "rot_practice.csv")
     model, r2, scaler = _fit(df.smiles, df.y, BASELINE_EPOCHS, BASELINE_BATCH)
-    w = {k: v.detach().cpu().numpy() for k, v in model.state_dict().items() if k in common.PARAM_SHAPES}
+    w = {
+        k: v.detach().cpu().numpy()
+        for k, v in model.state_dict().items()
+        if k in common.PARAM_SHAPES
+    }
     w["predictor.ffn.1.2.weight"] = w["predictor.ffn.1.2.weight"] * scaler.scale_[0]
     w["predictor.ffn.1.2.bias"] = w["predictor.ffn.1.2.bias"] * scaler.scale_[0] + scaler.mean_[0]
     np.savez(out / "models" / "rot_baseline_trained.npz", **w)
     print(f"  baseline (internal 85/15 R2={r2:.3f}); score it with score.py on rot_test.csv")
-    return {"internal_heldout_r2_standardised": r2, "trained_on": "rot_practice.csv",
-            "epochs": BASELINE_EPOCHS, "note": "output head folded back into raw counts"}
+    return {
+        "internal_heldout_r2_standardised": r2,
+        "trained_on": "rot_practice.csv",
+        "epochs": BASELINE_EPOCHS,
+        "note": "output head folded back into raw counts",
+    }
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(common.DEFAULT_RUN_DIR))
-    ap.add_argument("--what", default="all",
-                    choices=["all", "descriptors", "endpoints", "baseline"])
+    ap.add_argument(
+        "--what", default="all", choices=["all", "descriptors", "endpoints", "baseline"]
+    )
     args = ap.parse_args()
     out = Path(args.out)
     (out / "models").mkdir(parents=True, exist_ok=True)

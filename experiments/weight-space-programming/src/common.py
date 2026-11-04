@@ -110,7 +110,7 @@ def metrics(pred: np.ndarray, truth: np.ndarray) -> dict[str, float]:
     pred, truth = np.asarray(pred, float), np.asarray(truth, float)
     denom = ((truth - truth.mean()) ** 2).sum()
     return {
-        "n": int(len(truth)),
+        "n": len(truth),
         "mae": float(np.abs(pred - truth).mean()),
         "rmse": float(np.sqrt(((pred - truth) ** 2).mean())),
         "r2": float(1 - ((pred - truth) ** 2).sum() / denom) if denom > 0 else float("nan"),
@@ -142,7 +142,7 @@ def molecule_pool() -> list[str]:
     for path in sorted(TEST_DATA.glob("**/*.csv")):
         try:
             df = pd.read_csv(path)
-        except Exception:
+        except Exception:  # some fixtures are not parseable as plain CSV; skip them
             continue
         for col in df.columns:
             if "smiles" in col.lower():

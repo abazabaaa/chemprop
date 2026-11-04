@@ -10,16 +10,14 @@ by exactly the same code path (the real chemprop model, not a reimplementation).
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import sys
 
 import pandas as pd
 
-import sys
-from pathlib import Path as _Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-sys.path.insert(0, str(_Path(__file__).resolve().parent))
-
-import common
+import common  # noqa: E402 # needs the path set above
 
 
 def run(weights_path: str, labels_csv: str) -> dict:

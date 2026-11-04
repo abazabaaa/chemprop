@@ -17,17 +17,15 @@ from prompts/. Keep the answer keys out of the folder - they live in runs/.
 from __future__ import annotations
 
 import argparse
-import shutil
 from pathlib import Path
+import shutil
+import sys
 
 import numpy as np
 
-import sys
-from pathlib import Path as _Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-sys.path.insert(0, str(_Path(__file__).resolve().parent))
-
-import common
+import common  # noqa: E402 # needs the path set above
 
 FORWARD_PASS_BUDGET = 20
 
@@ -38,7 +36,8 @@ def _write_eval_tool(folder: Path, labels_csv: Path, src_dir: Path) -> None:
     Aggregate-only is deliberate: the agent may learn how well its design does, but never sees a
     molecule, a per-molecule prediction or a label, so it cannot fit the weights to the data.
     """
-    (folder / "eval.py").write_text(f'''"""Forward-pass tool: scores your weights.npz on molecules you never see.
+    (folder / "eval.py").write_text(
+        f'''"""Forward-pass tool: scores your weights.npz on molecules you never see.
 
     python -I eval.py weights.npz
 
@@ -70,11 +69,13 @@ used += 1
 json.dump({{"used": used, "budget": BUDGET}}, open(LOG, "w"))
 print(proc.stdout)
 print(f"forward passes used: {{used}}/{{BUDGET}}")
-''')
+'''
+    )
 
 
 def _starter_script(folder: Path) -> None:
-    (folder / "build_weights.py").write_text('''"""Fill in the weights by hand, then run this file to write weights.npz. numpy only.
+    (folder / "build_weights.py").write_text(
+        '''"""Fill in the weights by hand, then run this file to write weights.npz. numpy only.
 
 Write this as a PROGRAM that constructs the weights - named feature-index constants, loops, slice
 assignments - not as thousands of literal numbers. Most weights can stay zero.
@@ -103,7 +104,8 @@ np.savez("weights.npz", **{
     "predictor.ffn.1.2.weight": W2, "predictor.ffn.1.2.bias": b2,
 })
 print("saved weights.npz")
-''')
+'''
+    )
 
 
 def main() -> None:

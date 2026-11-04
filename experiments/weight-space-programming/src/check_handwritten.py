@@ -19,10 +19,10 @@ Exit status is non-zero if any check that should pass does not.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,12 +30,12 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import common
+import common  # noqa: E402 # needs the path set above
 
 # Atom feature block offsets, from specs/feature_layout.md.
-A_CARBON = 5            # atomic_num=C (the list is Z=1..36 then 53, so carbon sits at index 5)
+A_CARBON = 5  # atomic_num=C (the list is Z=1..36 then 53, so carbon sits at index 5)
 A_DEG0, A_DEG_OTHER = 38, 44
-A_CHARGE_NEUTRAL = 49   # formal_charge block order is -1, -2, +1, +2, 0, other
+A_CHARGE_NEUTRAL = 49  # formal_charge block order is -1, -2, +1, +2, 0, other
 A_CHIRAL_NONE = 51
 A_NH0, A_NH_OTHER = 56, 61
 A_HYB_SP3 = 66
@@ -46,18 +46,39 @@ B_CONJ, B_INRING, B_STEREO0 = 5, 6, 7
 
 
 def check_build_reproduces(hand_dir: Path) -> bool:
+    """Run both copies of the generating program and compare against the committed weights.
+
+    `handwritten/build_weights.py` is the agent's program with black/isort formatting applied so it
+    passes this repository's lint CI; `results/reports/build_weights.verbatim.py.txt` is exactly
+    what the agent wrote. Both must produce the committed weights, which is what makes the
+    reformatting safe to have done.
+    """
     committed = common.load_weights(hand_dir / "weights.npz")
-    with tempfile.TemporaryDirectory() as tmp:
-        script = Path(tmp) / "build_weights.py"
-        script.write_text((hand_dir / "build_weights.py").read_text())
-        proc = subprocess.run([sys.executable, "-I", str(script)], capture_output=True, text=True)
-        if proc.returncode != 0:
-            print("  build_weights.py failed:", proc.stderr[-500:])
-            return False
-        rebuilt = common.load_weights(Path(tmp) / "weights.npz")
-    worst = max(float(np.abs(committed[k] - rebuilt[k]).max()) for k in committed)
-    print(f"  rebuilt from source, largest difference from the committed file: {worst:g}")
-    return worst == 0.0
+    sources = {
+        "formatted": hand_dir / "build_weights.py",
+        "verbatim": common.EXP_DIR / "results" / "reports" / "build_weights.verbatim.py.txt",
+    }
+    ok = True
+    for label, src in sources.items():
+        if not src.exists():
+            print(f"  {label}: missing ({src})")
+            ok = False
+            continue
+        with tempfile.TemporaryDirectory() as tmp:
+            script = Path(tmp) / "build_weights.py"
+            script.write_text(src.read_text())
+            proc = subprocess.run(
+                [sys.executable, "-I", str(script)], capture_output=True, text=True, check=False
+            )
+            if proc.returncode != 0:
+                print(f"  {label}: failed to run: {proc.stderr[-400:]}")
+                ok = False
+                continue
+            rebuilt = common.load_weights(Path(tmp) / "weights.npz")
+        worst = max(float(np.abs(committed[k] - rebuilt[k]).max()) for k in committed)
+        print(f"  {label}: largest difference from the committed weights {worst:g}")
+        ok = ok and worst == 0.0
+    return ok
 
 
 def check_sparsity(hand_dir: Path) -> bool:
@@ -82,8 +103,9 @@ def check_explicit_hydrogens(weights) -> bool:
     This is not a bug that was found after the fact: the writing agent stated this limitation in
     its own report, which is worth more than the limitation costs.
     """
-    from chemprop import data, featurizers
     from rdkit import Chem, RDLogger
+
+    from chemprop import data, featurizers
 
     RDLogger.DisableLog("rdApp.*")
     simple = Chem.MolFromSmarts(common.SIMPLE_ROTATABLE_SMARTS)
@@ -94,10 +116,21 @@ def check_explicit_hydrogens(weights) -> bool:
     out = {}
     for add_h in (False, True):
         ds = data.MoleculeDataset(
-            [data.MoleculeDatapoint.from_smi(s, [0.0], add_h=add_h) for s in smis], feat)
+            [data.MoleculeDatapoint.from_smi(s, [0.0], add_h=add_h) for s in smis], feat
+        )
         with torch.no_grad():
-            pred = torch.cat([model(b.bmg) for b in data.build_dataloader(
-                ds, batch_size=32, shuffle=False, num_workers=0)]).numpy().ravel()
+            pred = (
+                torch.cat(
+                    [
+                        model(b.bmg)
+                        for b in data.build_dataloader(
+                            ds, batch_size=32, shuffle=False, num_workers=0
+                        )
+                    ]
+                )
+                .numpy()
+                .ravel()
+            )
         out[add_h] = np.round(pred, 3)
         print(f"  add_h={add_h}: {out[add_h]}  truth {truth}")
     return np.allclose(out[False], truth) and not np.allclose(out[True], truth)
@@ -119,8 +152,9 @@ def _random_graph(rng, n_atoms: int, consistent: bool):
         if u != v and (u, v) not in edges and (v, u) not in edges:
             edges.append((u, v))
 
-    bond_kind = rng.choice([B_SINGLE, B_DOUBLE, B_TRIPLE, B_AROMATIC], size=len(edges),
-                           p=[0.6, 0.15, 0.1, 0.15])
+    bond_kind = rng.choice(
+        [B_SINGLE, B_DOUBLE, B_TRIPLE, B_AROMATIC], size=len(edges), p=[0.6, 0.15, 0.1, 0.15]
+    )
     in_ring = rng.random(len(edges)) < 0.25
 
     heavy_degree = np.zeros(n_atoms, int)
@@ -161,10 +195,14 @@ def _random_graph(rng, n_atoms: int, consistent: bool):
         if kind == B_TRIPLE:
             has_triple[u] = has_triple[v] = True
     truth = sum(
-        1 for (u, v), kind, ring in zip(edges, bond_kind, in_ring)
-        if kind == B_SINGLE and not ring
-        and declared_heavy[u] >= 2 and declared_heavy[v] >= 2
-        and not has_triple[u] and not has_triple[v]
+        1
+        for (u, v), kind, ring in zip(edges, bond_kind, in_ring)
+        if kind == B_SINGLE
+        and not ring
+        and declared_heavy[u] >= 2
+        and declared_heavy[v] >= 2
+        and not has_triple[u]
+        and not has_triple[v]
     )
     return mg, float(truth)
 
@@ -185,9 +223,15 @@ def check_random_graphs(weights, n_graphs: int, seed: int) -> bool:
         preds, truths = np.array(preds), np.array(truths)
         worst = float(np.abs(preds - truths).max())
         exact = float((np.round(preds) == truths).mean())
-        label = "features consistent with topology" if consistent else "features deliberately inconsistent"
-        print(f"  {n_graphs} random graphs, {label}: "
-              f"exact {exact * 100:.1f}%, largest error {worst:.2e}, truth up to {int(truths.max())}")
+        label = (
+            "features consistent with topology"
+            if consistent
+            else "features deliberately inconsistent"
+        )
+        print(
+            f"  {n_graphs} random graphs, {label}: "
+            f"exact {exact * 100:.1f}%, largest error {worst:.2e}, truth up to {int(truths.max())}"
+        )
         ok = ok and exact == 1.0
     return ok
 
@@ -224,8 +268,10 @@ def main() -> int:
 
     print("5. context: the same network against RDKit's stricter rotatable-bond definition")
     results["vs_rdkit_strict"] = _score(weights, data_dir / "rot_test.csv", "y_strict")
-    print(f"  exact {results['vs_rdkit_strict']['exact_round'] * 100:.1f}% "
-          f"(this is the ceiling the simple rule allows, not an error in the network)")
+    print(
+        f"  exact {results['vs_rdkit_strict']['exact_round'] * 100:.1f}% "
+        f"(this is the ceiling the simple rule allows, not an error in the network)"
+    )
 
     print("6. explicit hydrogens as graph nodes (known limitation)")
     passed["explicit_h"] = check_explicit_hydrogens(weights)
