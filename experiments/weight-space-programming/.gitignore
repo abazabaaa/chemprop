@@ -1,0 +1,8 @@
+# Everything reproducible lives here; regenerate it with src/make_datasets.py and src/train_models.py.
+runs/
+
+# The repository root ignores *.npz. The hand-written network is the central artefact of this
+# directory, so keep that one file: build_weights.py reproduces it bit-for-bit (check 1 of
+# src/check_handwritten.py), but having the exact evaluated weights in the branch means a reviewer
+# can score them without running anything first.
+!handwritten/weights.npz
