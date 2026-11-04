@@ -245,10 +245,14 @@ I have opinions, but these are genuinely open and you should not inherit my answ
 Reproducing the exact numbers from the session is not possible, and these are the reasons. The
 committed pipeline is the canonical one; `RESULTS.md` reports its numbers.
 
-1. **Molecule pool ordering.** The session's ad-hoc script ordered the pool by the input SMILES
-   string; `src/common.py` orders by canonical SMILES. The pool is the same 3,346 molecules, but the
-   practice/test split for the writing task differs, so its metrics move in the second decimal
-   (the hand-written network is exact under either split, so nothing material changes).
+1. **Molecule pool ordering, affecting the writing task's split only.** The session's ad-hoc
+   splitting script ordered the pool by the input SMILES string before shuffling; `src/common.py`
+   orders by canonical SMILES. The pool is the same 3,346 molecules and the eight reading models are
+   unaffected (they come back bit-identical, below), but the practice/test split for the *writing*
+   task differs. The hand-written network is exact under either split; the trained baseline is not,
+   and moves from 95.6% exact on the session's split to 91.3% on the committed one. That 4-point
+   swing from nothing but a different random half is itself worth keeping in mind when reading any
+   single-seed baseline here.
 2. **Adversarial set.** The session used 41 molecules including a two-component salt and a bare
    `[C]`; the committed set has 38, dropping multi-component and degenerate entries. 100% exact
    under both.
@@ -264,8 +268,10 @@ committed pipeline is the canonical one; `RESULTS.md` reports its numbers.
    nine runs were probably not all served by the same version, and I cannot say which ran where.
    No per-run model identifier was recorded. Record one.
 6. **The descriptor training run was interrupted** by a background time limit and resumed by
-   reloading the three models that had finished. `src/train_models.py` trains in one pass; the
-   held-out R² values it reports match the session's to three decimals for the models I have
-   compared, which is weak evidence that the resume did no harm.
+   reloading the three models that had finished. `src/train_models.py` trains in one pass. This
+   turned out not to matter at all: all eight reading models regenerate **bit-identically** to the
+   files the agents read (largest element-wise difference 0.0 across all eight). So the reading
+   results are fully auditable from the committed code, and none of the deviations above touch
+   them - deviation 3, the non-identical architecture document, is the one that does.
 7. **Nine agent runs, no repeats, no logs.** The reports in `results/reports/` are the complete
    record. Full transcripts were not retained.

@@ -41,7 +41,7 @@ prompts/        the exact prompts, including the two that failed and why
 handwritten/    the hand-written network: its generating program and its weights
 src/            dataset construction, training, scoring, task assembly, verification
 results/        answer keys, metrics, and all nine agent reports verbatim
-RESULTS.md      every number in one place
+RESULTS.md      every number in one place, with the claims graded by how well they hold up
 VERIFICATION.md what is wrong with this pilot and how to do it right
 ```
 
@@ -63,6 +63,10 @@ python -I experiments/weight-space-programming/src/check_handwritten.py  # verif
 
 Everything lands in `runs/`, which is git-ignored. `check_handwritten.py` needs only
 `make_datasets.py` to have run, and exits non-zero if any check fails.
+
+Training is deterministic enough that this regenerates the exact models the agents read: all eight
+come back bit-identical to the files used in the session, so the reading results can be audited
+without trusting any binary committed here.
 
 To run an agent task, hand it one folder from `runs/tasks/` and the matching prompt from
 `prompts/`. Each reading folder contains exactly three files - the weights, the architecture and the
